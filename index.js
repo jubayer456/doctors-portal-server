@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { json } = require('express/lib/response');
+const { json, set } = require('express/lib/response');
 const { MongoClient, ServerApiVersion } = require('mongodb');
 const app = express();
 require('dotenv').config();
@@ -44,6 +44,30 @@ const run = async () => {
             const cursor = bookingCollection.find(query);
             const result = await cursor.toArray();
             res.send(result);
+        })
+
+        //
+        app.get('/available', async (req, res) => {
+            const date = req.query.date || 'May 17, 2022';
+
+            //step-1 get all the service
+            const services = await serviceCollection.find().toArray();
+            //step-2 
+            console.log(date);
+            const query = { date: date };
+            const bookings = await bookingCollection.find(query).toArray();
+            //step-3
+            services.forEach(service => {
+                //step-4
+                const serviceBookings = bookings.filter(book => book.treatment === service.name);
+                //step-5
+                const bookedSlots = serviceBookings.map(book => book.slot);
+                // step-6
+                service.booked = bookedSlots;
+                const available = service.slots.filter(slot => !bookedSlots.includes(slot));
+                service.slots = available;
+            })
+            res.send(services);
         })
 
     }
