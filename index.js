@@ -40,7 +40,8 @@ const run = async () => {
         })
         //get
         app.get('/booking', async (req, res) => {
-            const query = {};
+            const email = req.query.email;
+            const query = { patient: email };
             const cursor = bookingCollection.find(query);
             const result = await cursor.toArray();
             res.send(result);
