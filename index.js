@@ -1,7 +1,9 @@
 const express = require('express');
 const cors = require('cors');
 const { json, set } = require('express/lib/response');
+const jwt = require('jsonwebtoken');
 const { MongoClient, ServerApiVersion } = require('mongodb');
+const { decode } = require('jsonwebtoken');
 const app = express();
 require('dotenv').config();
 const port = process.env.PORT || 5000;
@@ -10,7 +12,20 @@ const port = process.env.PORT || 5000;
 app.use(express.json());
 app.use(cors());
 
-
+const verifyJWT = (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+        return res.status(401).send({ messasge: 'Unauthorized Access' });
+    }
+    const token = authHeader.split(' ')[1];
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECREET, function (error, decoded) {
+        if (error) {
+            return res.status(403).send({ messasge: 'Forbidden Access' })
+        }
+        req.decoded = decoded;
+        next();
+    })
+}
 
 const uri = `mongodb+srv://${process.env.USER}:${process.env.PASSWORD}@cluster0.8hmdt.mongodb.net/myFirstDatabase?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true, serverApi: ServerApiVersion.v1 });
@@ -19,6 +34,7 @@ const run = async () => {
         await client.connect();
         const serviceCollection = client.db('doctors_portal').collection('services');
         const bookingCollection = client.db('doctors_portal').collection('bookings');
+        const userCollection = client.db('doctors_portal').collection('user');
         //get
         app.get('/service', async (req, res) => {
             const query = {};
@@ -38,13 +54,72 @@ const run = async () => {
             const result = await bookingCollection.insertOne(booking);
             res.send({ success: true, result });
         })
+
         //get
-        app.get('/booking', async (req, res) => {
-            const email = req.query.email;
-            const query = { patient: email };
-            const cursor = bookingCollection.find(query);
-            const result = await cursor.toArray();
+        app.get('/users', verifyJWT, async (req, res) => {
+            const result = await userCollection.find().toArray();
             res.send(result);
+        })
+
+        //get
+        app.get('/booking', verifyJWT, async (req, res) => {
+            const email = req.query.email;
+            const decodedEmail = req.decoded.email;
+            if (email === decodedEmail) {
+                const query = { patient: email };
+                const cursor = bookingCollection.find(query);
+                const result = await cursor.toArray();
+                return res.send(result);
+            }
+            else {
+                return res.status(403).send({ messasge: 'Forbidden Access' })
+            }
+
+        })
+
+        app.get('/admin/:email', async (req, res) => {
+            const email = req.params.email;
+            const result = await userCollection.findOne({ email: email });
+            const isAdmin = result.role === 'admin';
+            res.send({ admin: isAdmin });
+        })
+
+
+        //admin
+        app.put('/user/admin/:email', verifyJWT, async (req, res) => {
+            const email = req.params.email;
+            const requester = req.decoded.email;
+            const requesterAcount = await userCollection.findOne({ email: requester });
+            if (requesterAcount.role === 'admin') {
+                console.log("admin");
+                const filter = { email: email };
+                const updateDoc = {
+                    $set: { role: 'admin' }
+                };
+                const result = await userCollection.updateOne(filter, updateDoc);
+                return res.send(result);
+            }
+            else {
+                return res.status(403).send({ messasge: 'Forbidden Access' })
+            }
+
+        })
+
+
+
+
+        //put
+        app.put('/user/:email', async (req, res) => {
+            const email = req.params.email;
+            const user = req.body;
+            const filter = { email: email };
+            const options = { upsert: true };
+            const updateDoc = {
+                $set: user
+            };
+            const result = await userCollection.updateOne(filter, updateDoc, options);
+            const token = jwt.sign({ email: email }, process.env.ACCESS_TOKEN_SECREET, { expiresIn: '1d' });
+            res.send({ result, token });
         })
 
         //
